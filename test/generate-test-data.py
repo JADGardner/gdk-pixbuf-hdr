@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: LGPL-2.1-or-later
-"""Generate minimal test EXR files for the gdk-pixbuf-exr test suite."""
+"""Generate minimal test EXR and HDR files for the gdk-pixbuf-hdr test suite."""
 
 import struct
+import math
 import os
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+
+
+# ---- EXR helpers ----
 
 def write_exr(path, width, height, pixel_data_rgb):
     """
@@ -112,7 +116,103 @@ def write_exr(path, width, height, pixel_data_rgb):
         f.write(data)
 
 
+# ---- HDR helpers ----
+
+def float_to_rgbe(r, g, b):
+    """Convert linear RGB floats to RGBE (4 bytes)."""
+    v = max(r, g, b)
+    if v < 1e-32:
+        return (0, 0, 0, 0)
+    mantissa, exponent = math.frexp(v)
+    # mantissa is in [0.5, 1.0), scale to [128, 256)
+    scale = mantissa * 256.0 / v
+    return (
+        min(255, max(0, int(r * scale))),
+        min(255, max(0, int(g * scale))),
+        min(255, max(0, int(b * scale))),
+        exponent + 128,
+    )
+
+
+def write_hdr(path, width, height, pixels):
+    """Write a flat (uncompressed) Radiance HDR file."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'wb') as f:
+        # Header
+        f.write(b'#?RADIANCE\n')
+        f.write(b'FORMAT=32-bit_rle_rgbe\n')
+        f.write(b'\n')  # blank line ends header
+        # Resolution string
+        f.write(f'-Y {height} +X {width}\n'.encode('ascii'))
+        # Flat pixel data: 4 bytes per pixel (RGBE)
+        for y in range(height):
+            for x in range(width):
+                r, g, b = pixels[y * width + x]
+                rgbe = float_to_rgbe(r, g, b)
+                f.write(bytes(rgbe))
+
+
+def write_hdr_rle(path, width, height, pixels):
+    """Write a new-style RLE Radiance HDR file (width must be >= 8 and <= 0x7fff)."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'wb') as f:
+        # Header
+        f.write(b'#?RADIANCE\n')
+        f.write(b'FORMAT=32-bit_rle_rgbe\n')
+        f.write(b'\n')
+        f.write(f'-Y {height} +X {width}\n'.encode('ascii'))
+
+        for y in range(height):
+            # Convert scanline to RGBE
+            scanline = []
+            for x in range(width):
+                r, g, b = pixels[y * width + x]
+                scanline.append(float_to_rgbe(r, g, b))
+
+            # RLE header: 0x02, 0x02, width_hi, width_lo
+            f.write(bytes([0x02, 0x02, (width >> 8) & 0xff, width & 0xff]))
+
+            # Encode each channel separately with RLE
+            for ch in range(4):
+                channel_data = [scanline[x][ch] for x in range(width)]
+                _write_rle_channel(f, channel_data)
+
+
+def _write_rle_channel(f, data):
+    """RLE-encode a single channel of scanline data."""
+    i = 0
+    n = len(data)
+    while i < n:
+        # Look for a run of identical values
+        run_start = i
+        run_val = data[i]
+        while i < n and i - run_start < 127 and data[i] == run_val:
+            i += 1
+        run_len = i - run_start
+
+        if run_len >= 3:
+            # Emit as a run
+            f.write(bytes([run_len + 128, run_val]))
+        else:
+            # Not a good run — collect literals
+            i = run_start
+            lit_start = i
+            while i < n and i - lit_start < 127:
+                # Check if a run of 3+ starts here
+                if i + 2 < n and data[i] == data[i + 1] == data[i + 2]:
+                    break
+                i += 1
+            lit_len = i - lit_start
+            if lit_len == 0:
+                # Edge case: we're at a run, let the run handler take it
+                continue
+            f.write(bytes([lit_len]))
+            f.write(bytes(data[lit_start:lit_start + lit_len]))
+
+
 def main():
+    # ---- EXR test data ----
+
     # simple.exr: 8x8 gradient image with varying colors
     width, height = 8, 8
     pixels = []
@@ -140,6 +240,44 @@ def main():
     with open(os.path.join(DATA_DIR, "not-an-exr.dat"), 'wb') as f:
         f.write(b'\x89PNG\r\n\x1a\n' + b'\x00' * 64)
     print("Created not-an-exr.dat")
+
+    # ---- HDR test data ----
+
+    # simple.hdr: 8x8 flat (uncompressed) gradient
+    width, height = 8, 8
+    hdr_pixels = []
+    for y in range(height):
+        for x in range(width):
+            r = (x + 1) / width * 2.0
+            g = (y + 1) / height * 1.5
+            b = 0.5
+            hdr_pixels.append((r, g, b))
+
+    write_hdr(os.path.join(DATA_DIR, "simple.hdr"), width, height, hdr_pixels)
+    print(f"Created simple.hdr ({width}x{height}, flat)")
+
+    # simple-rle.hdr: 32x8 RLE-encoded gradient
+    width, height = 32, 8
+    rle_pixels = []
+    for y in range(height):
+        for x in range(width):
+            r = (x + 1) / width * 2.0
+            g = (y + 1) / height * 1.5
+            b = 0.5
+            rle_pixels.append((r, g, b))
+
+    write_hdr_rle(os.path.join(DATA_DIR, "simple-rle.hdr"), width, height, rle_pixels)
+    print(f"Created simple-rle.hdr ({width}x{height}, RLE)")
+
+    # corrupt.hdr: garbage bytes
+    with open(os.path.join(DATA_DIR, "corrupt.hdr"), 'wb') as f:
+        f.write(b'\xde\xad\xbe\xef' * 16)
+    print("Created corrupt.hdr")
+
+    # empty.hdr: zero bytes
+    with open(os.path.join(DATA_DIR, "empty.hdr"), 'wb') as f:
+        pass
+    print("Created empty.hdr")
 
 
 if __name__ == "__main__":

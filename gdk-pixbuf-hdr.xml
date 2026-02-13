@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="image/vnd.radiance">
+    <comment>Radiance HDR image</comment>
+    <magic priority="50">
+      <match type="string" offset="0" value="#?RADIANCE"/>
+      <match type="string" offset="0" value="#?RGBE"/>
+    </magic>
+    <glob pattern="*.hdr"/>
+    <glob pattern="*.pic"/>
+  </mime-type>
+</mime-info>

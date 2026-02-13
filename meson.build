@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
-project('gdk-pixbuf-exr', 'c',
-  version: '0.1.0',
+project('gdk-pixbuf-hdr', 'c',
+  version: '0.2.0',
   license: 'LGPL-2.1-or-later',
   meson_version: '>= 0.60',
   default_options: [
@@ -41,7 +41,7 @@ add_project_arguments(extra_c_args, language: 'c')
 gdk_pixbuf_binary_version = gdk_pixbuf_dep.get_variable(pkgconfig: 'gdk_pixbuf_binary_version')
 loader_dir = get_option('libdir') / 'gdk-pixbuf-2.0' / gdk_pixbuf_binary_version / 'loaders'
 
-# Build the loader module
+# Build the EXR loader module
 pixbufloader_exr = shared_module('pixbufloader-exr',
   'io-exr.c',
   dependencies: [gdk_pixbuf_dep, tinyexr_dep, cc.find_library('m', required: false)],
@@ -51,9 +51,27 @@ pixbufloader_exr = shared_module('pixbufloader-exr',
   gnu_symbol_visibility: 'hidden',
 )
 
-# Thumbnailer
+# Build the HDR loader module (pure C, no external library)
+pixbufloader_hdr = shared_module('pixbufloader-hdr',
+  'io-hdr.c',
+  dependencies: [gdk_pixbuf_dep, cc.find_library('m', required: false)],
+  install: true,
+  install_dir: loader_dir,
+  name_prefix: '',
+  gnu_symbol_visibility: 'hidden',
+)
+
+# Thumbnailers
 install_data('exr.thumbnailer',
   install_dir: get_option('datadir') / 'thumbnailers',
+)
+install_data('hdr.thumbnailer',
+  install_dir: get_option('datadir') / 'thumbnailers',
+)
+
+# shared-mime-info XML for image/vnd.radiance
+install_data('gdk-pixbuf-hdr.xml',
+  install_dir: get_option('datadir') / 'mime' / 'packages',
 )
 
 # Update loaders cache on install
@@ -64,6 +82,15 @@ gdk_pixbuf_query_loaders = find_program(
 meson.add_install_script(gdk_pixbuf_query_loaders, '--update-cache',
   skip_if_destdir: true,
 )
+
+# Update MIME database on install
+update_mime_database = find_program('update-mime-database', required: false)
+if update_mime_database.found()
+  meson.add_install_script(update_mime_database,
+    get_option('prefix') / get_option('datadir') / 'mime',
+    skip_if_destdir: true,
+  )
+endif
 
 # Tests
 if get_option('tests')

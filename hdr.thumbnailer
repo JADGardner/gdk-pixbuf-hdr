@@ -1,0 +1,4 @@
+[Thumbnailer Entry]
+TryExec=gdk-pixbuf-thumbnailer
+Exec=gdk-pixbuf-thumbnailer -s %s %u %o
+MimeType=image/vnd.radiance;

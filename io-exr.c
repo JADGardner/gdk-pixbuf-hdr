@@ -347,9 +347,9 @@ exr_stop_load(gpointer context, GError **error)
             ctx->updated_func(pixbuf, 0, 0, width, height, ctx->user_data);
     }
 
-    g_object_unref(pixbuf);
-
 out:
+    if (pixbuf)
+        g_object_unref(pixbuf);
     g_byte_array_free(ctx->buffer, TRUE);
     g_free(ctx);
     return result;
