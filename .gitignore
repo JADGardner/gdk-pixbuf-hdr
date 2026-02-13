@@ -1,0 +1,16 @@
+builddir/
+build/
+
+# Editor swap/backup files
+*.swp
+*~
+.*.swp
+
+# Compiled objects
+*.o
+*.so
+*.la
+
+# IDE directories
+.vscode/
+.idea/
